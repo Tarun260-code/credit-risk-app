@@ -1,238 +1,150 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import joblib
 import shap
 import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, roc_curve, auc
 
-# ------------------------------------------------
-# PAGE CONFIG
-# ------------------------------------------------
-st.set_page_config(
-    page_title="AI Credit Engine",
-    layout="wide",
-)
+st.set_page_config(page_title="AI Credit Risk Engine", layout="wide")
 
-# ------------------------------------------------
-# CLEAN PREMIUM CSS
-# ------------------------------------------------
-st.markdown("""
-<style>
-
-/* Remove Streamlit default padding */
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 2rem;
-}
-
-/* Page background */
-body {
-    background-color: #0b1220;
-}
-
-/* Gradient Header */
-.header {
-    background: linear-gradient(90deg, #0f172a, #1e293b);
-    padding: 30px;
-    border-radius: 16px;
-    color: white;
-    margin-bottom: 30px;
-}
-
-/* Card */
-.card {
-    background-color: #111827;
-    padding: 25px;
-    border-radius: 16px;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-    margin-bottom: 25px;
-    border: 1px solid #1f2937;
-}
-
-/* Titles */
-.section-title {
-    font-size: 22px;
-    font-weight: 600;
-    margin-bottom: 15px;
-    color: #e5e7eb;
-}
-
-/* Metric styling */
-div[data-testid="metric-container"] {
-    background-color: #0f172a;
-    padding: 15px;
-    border-radius: 12px;
-    border: 1px solid #1f2937;
-}
-
-/* Button */
-.stButton>button {
-    background: linear-gradient(90deg, #2563eb, #1d4ed8);
-    color: white;
-    border-radius: 10px;
-    height: 3em;
-    font-weight: 600;
-    border: none;
-}
-
-/* Approval Badges */
-.approve { color: #22c55e; font-size: 24px; font-weight: 600; }
-.conditional { color: #facc15; font-size: 24px; font-weight: 600; }
-.reject { color: #ef4444; font-size: 24px; font-weight: 600; }
-
-</style>
-""", unsafe_allow_html=True)
-
-# ------------------------------------------------
-# HEADER
-# ------------------------------------------------
-st.markdown("""
-<div class="header">
-    <h1>🏦 AI Powered Credit Risk Engine</h1>
-    <p>Explainable AI for Indian Individuals & MSMEs</p>
-</div>
-""", unsafe_allow_html=True)
-
-# ------------------------------------------------
-# LOAD MODEL
-# ------------------------------------------------
+# -------------------------------
+# Load Model
+# -------------------------------
 @st.cache_resource
 def load_model():
     model = joblib.load("credit_model.pkl")
-    features = joblib.load("feature_names.pkl")
-    return model, features
+    feature_names = joblib.load("feature_names.pkl")
+    return model, feature_names
 
 model, feature_names = load_model()
 
-# ------------------------------------------------
-# INPUT CARD
-# ------------------------------------------------
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">Applicant Details</div>', unsafe_allow_html=True)
+# -------------------------------
+# Premium Header
+# -------------------------------
+st.markdown("""
+<h1 style='text-align:center; color:#1f4e79;'>AI Powered Credit Risk Engine</h1>
+<h4 style='text-align:center;'>Explainable AI | India-focused Alternative Scoring</h4>
+<hr>
+""", unsafe_allow_html=True)
 
-applicant_type = st.radio("Applicant Type", ["Individual", "MSME"])
+# -------------------------------
+# Applicant Type Selection
+# -------------------------------
+applicant_type = st.radio("Select Applicant Type", ["Individual", "MSME"], horizontal=True)
 
-loan_amount = st.number_input("Loan Amount (₹)", min_value=1000)
-loan_duration = st.number_input("Loan Duration (Months)", min_value=1)
-existing_emis = st.number_input("Existing EMIs (₹)", min_value=0)
-missed_payments = st.number_input("Missed Payments", min_value=0)
-cheque_bounce = st.number_input("Cheque Bounce Count", min_value=0)
+# -------------------------------
+# INPUT SECTION
+# -------------------------------
+st.subheader("Applicant Details")
+
+input_dict = {}
 
 if applicant_type == "Individual":
-    age = st.number_input("Age", min_value=18)
-    monthly_income = st.number_input("Monthly Income (₹)", min_value=0)
-    work_experience = st.number_input("Work Experience (Years)", min_value=0)
-    savings = st.number_input("Savings (₹)", min_value=0)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        input_dict["age"] = st.number_input("Age", 18, 70, 30)
+        input_dict["monthly_income"] = st.number_input("Monthly Income", 10000, 500000, 50000)
+        input_dict["employment_years"] = st.number_input("Employment Years", 0, 40, 5)
+        input_dict["credit_score"] = st.number_input("Credit Score", 300, 900, 650)
+
+    with col2:
+        input_dict["savings_balance"] = st.number_input("Savings Balance", 0, 1000000, 50000)
+        input_dict["existing_loans"] = st.number_input("Existing Loans", 0, 10, 1)
+        input_dict["loan_amount"] = st.number_input("Loan Amount", 10000, 2000000, 200000)
+        input_dict["loan_duration"] = st.number_input("Loan Duration (Months)", 6, 120, 24)
+
+    with col3:
+        input_dict["emi_ratio"] = st.slider("EMI Ratio", 0.0, 1.0, 0.3)
+        input_dict["digital_payment_frequency"] = st.number_input("Digital Payments / Month", 0, 500, 50)
+        input_dict["utility_bill_payment_score"] = st.slider("Utility Bill Payment Score", 0, 100, 80)
+        input_dict["dependents"] = st.number_input("Dependents", 0, 10, 2)
+
 else:
-    business_age = st.number_input("Business Age (Years)", min_value=0)
-    monthly_revenue = st.number_input("Monthly Revenue (₹)", min_value=0)
-    annual_turnover = st.number_input("Annual Turnover (₹)", min_value=0)
-    gst_registered = st.selectbox("GST Registered?", [0, 1])
-    employee_count = st.number_input("Employee Count", min_value=0)
 
-st.markdown('</div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
 
-# ------------------------------------------------
+    with col1:
+        input_dict["business_age"] = st.number_input("Business Age (Years)", 0, 30, 5)
+        input_dict["annual_turnover"] = st.number_input("Annual Turnover", 100000, 100000000, 2000000)
+        input_dict["gst_filing_score"] = st.slider("GST Filing Score", 0, 100, 75)
+
+    with col2:
+        input_dict["average_monthly_cashflow"] = st.number_input("Avg Monthly Cashflow", 10000, 5000000, 200000)
+        input_dict["existing_business_loans"] = st.number_input("Existing Business Loans", 0, 10, 1)
+        input_dict["sector_risk_score"] = st.slider("Sector Risk Score", 0.0, 1.0, 0.5)
+
+    with col3:
+        input_dict["supplier_payment_score"] = st.slider("Supplier Payment Score", 0, 100, 80)
+        input_dict["upi_transaction_volume"] = st.number_input("UPI Transactions / Month", 0, 5000, 300)
+        input_dict["inventory_turnover_ratio"] = st.slider("Inventory Turnover Ratio", 0.1, 15.0, 3.0)
+        input_dict["profit_margin"] = st.slider("Profit Margin", 0.0, 0.5, 0.15)
+        input_dict["credit_history_score"] = st.slider("Credit History Score", 0, 100, 70)
+        input_dict["loan_amount"] = st.number_input("Loan Amount", 10000, 2000000, 500000)
+        input_dict["loan_duration"] = st.number_input("Loan Duration (Months)", 6, 120, 36)
+
+# Fill missing features with 0
+for feature in feature_names:
+    if feature not in input_dict:
+        input_dict[feature] = 0
+
+# Create DataFrame
+input_data = pd.DataFrame([input_dict])[feature_names]
+
+# -------------------------------
 # PREDICTION
-# ------------------------------------------------
-if st.button("Evaluate Credit Risk"):
+# -------------------------------
+if st.button("Analyze Credit Risk"):
 
-    input_dict = {
-        "loan_amount": loan_amount,
-        "loan_duration": loan_duration,
-        "existing_emis": existing_emis,
-        "missed_payments": missed_payments,
-        "cheque_bounce": cheque_bounce,
-    }
+    prob = model.predict_proba(input_data)[0][1]
+    prediction = model.predict(input_data)[0]
 
-    if applicant_type == "Individual":
-        input_dict.update({
-            "age": age,
-            "monthly_income": monthly_income,
-            "work_experience": work_experience,
-            "savings": savings,
-        })
+    st.subheader("Prediction Result")
+
+    if prediction == 0:
+        st.success(f"Approved ✅ | Default Risk: {prob:.2%}")
     else:
-        input_dict.update({
-            "business_age": business_age,
-            "monthly_revenue": monthly_revenue,
-            "annual_turnover": annual_turnover,
-            "gst_registered": gst_registered,
-            "employee_count": employee_count,
-        })
+        st.error(f"High Risk ❌ | Default Risk: {prob:.2%}")
 
-    for f in feature_names:
-        if f not in input_dict:
-            input_dict[f] = 0
+    # ----------------------------------
+    # ROC Curve
+    # ----------------------------------
+    st.subheader("ROC Curve")
 
-    input_df = pd.DataFrame([input_dict])[feature_names]
+    y_prob = model.predict_proba(input_data)[:,1]
+    fpr, tpr, _ = roc_curve([0], y_prob)
+    roc_auc = auc(fpr, tpr)
 
-    prob = model.predict_proba(input_df)[0][1]
-    risk_score = round(prob * 100, 2)
+    fig1 = plt.figure()
+    plt.plot(fpr, tpr)
+    plt.plot([0,1],[0,1])
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    st.pyplot(fig1)
 
-    # ---------------------------------------------
-    # RISK CARD
-    # ---------------------------------------------
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Risk Assessment</div>', unsafe_allow_html=True)
+    # ----------------------------------
+    # Confusion Matrix (Simulated)
+    # ----------------------------------
+    st.subheader("Confusion Matrix")
 
-    col1, col2 = st.columns(2)
-    col1.metric("Default Probability (%)", risk_score)
+    cm = confusion_matrix([0], model.predict(input_data))
 
-    if risk_score < 30:
-        category = "Low Risk"
-        grade = "A"
-    elif risk_score < 60:
-        category = "Medium Risk"
-        grade = "B"
-    else:
-        category = "High Risk"
-        grade = "C"
+    fig2 = plt.figure()
+    plt.imshow(cm)
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    st.pyplot(fig2)
 
-    col2.metric("Risk Grade", grade)
-    st.write(f"**Category:** {category}")
+    # ----------------------------------
+    # SHAP Explainability
+    # ----------------------------------
+    st.subheader("Explainable AI (SHAP)")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(input_data)
 
-    # ---------------------------------------------
-    # APPROVAL CARD
-    # ---------------------------------------------
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Approval Recommendation</div>', unsafe_allow_html=True)
-
-    if applicant_type == "Individual":
-        dti = (existing_emis + (loan_amount / loan_duration)) / max(monthly_income,1)
-        st.metric("Debt-to-Income Ratio", round(dti,2))
-
-        if risk_score < 30 and dti < 0.4:
-            st.markdown('<p class="approve">✅ APPROVED</p>', unsafe_allow_html=True)
-        elif risk_score < 60 and dti < 0.6:
-            st.markdown('<p class="conditional">🟡 CONDITIONAL APPROVAL</p>', unsafe_allow_html=True)
-        else:
-            st.markdown('<p class="reject">❌ REJECTED</p>', unsafe_allow_html=True)
-    else:
-        coverage = monthly_revenue / max((loan_amount/loan_duration),1)
-        st.metric("Revenue Coverage Ratio", round(coverage,2))
-
-        if risk_score < 30 and coverage > 2:
-            st.markdown('<p class="approve">✅ APPROVED</p>', unsafe_allow_html=True)
-        elif risk_score < 60 and coverage > 1.2:
-            st.markdown('<p class="conditional">🟡 CONDITIONAL APPROVAL</p>', unsafe_allow_html=True)
-        else:
-            st.markdown('<p class="reject">❌ REJECTED</p>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ---------------------------------------------
-    # SHAP CARD
-    # ---------------------------------------------
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Explainable AI</div>', unsafe_allow_html=True)
-
-    explainer = shap.Explainer(model)
-    shap_values = explainer(input_df)
-
-    fig = plt.figure()
-    shap.plots.waterfall(shap_values[0], show=False)
-    st.pyplot(fig)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    fig3 = plt.figure()
+    shap.summary_plot(shap_values, input_data, show=False)
+    st.pyplot(fig3)
