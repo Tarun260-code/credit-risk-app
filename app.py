@@ -144,17 +144,8 @@ if st.button("Evaluate Credit Risk"):
     st.subheader("Why this prediction? (SHAP)")
 
     try:
-        import warnings
-        warnings.filterwarnings("ignore")
-
-        # Load training data to fit explainer properly
-        df_train = pd.read_csv("german_credit.csv")
-        X_bg = df_train.drop(columns=["Creditability"]).values.astype(float)
-
         input_array = input_df.values.astype(float)
-
-        # Use background data so SHAP knows feature distributions
-        explainer   = shap.TreeExplainer(model, data=X_bg[:100])
+        explainer   = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(input_array)
 
         sv     = shap_values[0]

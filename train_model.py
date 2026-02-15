@@ -44,7 +44,7 @@ rf.fit(X_train, y_train)
 xgb = XGBClassifier(n_estimators=100, max_depth=3, learning_rate=0.05,
                     subsample=0.8, reg_lambda=2.0, random_state=42,
                     verbosity=0, eval_metric="logloss")
-xgb.fit(X_train, y_train)
+xgb.fit(X_train.values, y_train)  # .values strips column names — fixes SHAP later
 
 knn = KNeighborsClassifier(n_neighbors=11)
 knn.fit(X_train_scaled, y_train)
@@ -55,7 +55,7 @@ print("All models trained")
 models = {
     "Logistic Regression": (lr,  X_test_scaled),
     "Random Forest":       (rf,  X_test),
-    "XGBoost":             (xgb, X_test),
+    "XGBoost":             (xgb, X_test.values),
     "KNN":                 (knn, X_test_scaled),
 }
 
@@ -66,7 +66,7 @@ for name, (model, X_eval) in models.items():
     print("{:<25} {:.3f}".format(name, auc))
 
 # 7. ROC Curve
-y_prob = xgb.predict_proba(X_test)[:, 1]
+y_prob = xgb.predict_proba(X_test.values)[:, 1]
 fpr, tpr, _ = roc_curve(y_test, y_prob)
 auc = roc_auc_score(y_test, y_prob)
 
@@ -82,7 +82,7 @@ plt.savefig("roc_curve.png")
 plt.show()
 
 # 8. Confusion Matrix
-y_pred = xgb.predict(X_test)
+y_pred = xgb.predict(X_test.values)
 cm = confusion_matrix(y_test, y_pred)
 
 plt.figure(figsize=(5, 4))
@@ -108,9 +108,9 @@ plt.show()
 
 # 10. SHAP
 explainer   = shap.TreeExplainer(xgb)
-shap_values = explainer.shap_values(X_test)
+shap_values = explainer.shap_values(X_test.values)
 
-shap.summary_plot(shap_values, X_test, feature_names=X.columns.tolist(), show=False)
+shap.summary_plot(shap_values, X_test.values, feature_names=X.columns.tolist(), show=False)
 plt.tight_layout()
 plt.savefig("shap_summary.png")
 plt.show()
