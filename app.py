@@ -4,147 +4,251 @@ import numpy as np
 import joblib
 import shap
 import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, roc_curve, auc
+import matplotlib
+from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix, ConfusionMatrixDisplay
 
-st.set_page_config(page_title="AI Credit Risk Engine", layout="wide")
+matplotlib.use("Agg")
 
-# -------------------------------
-# Load Model
-# -------------------------------
-@st.cache_resource
-def load_model():
-    model = joblib.load("credit_model.pkl")
-    feature_names = joblib.load("feature_names.pkl")
-    return model, feature_names
+# Load model
+model = joblib.load("model.pkl")
 
-model, feature_names = load_model()
+st.set_page_config(page_title="AI Credit Risk System", layout="centered")
+st.title("AI Credit Risk Evaluation")
 
-# -------------------------------
-# Premium Header
-# -------------------------------
-st.markdown("""
-<h1 style='text-align:center; color:#1f4e79;'>AI Powered Credit Risk Engine</h1>
-<h4 style='text-align:center;'>Explainable AI | India-focused Alternative Scoring</h4>
-<hr>
-""", unsafe_allow_html=True)
+st.write("Enter applicant details manually:")
 
-# -------------------------------
-# Applicant Type Selection
-# -------------------------------
-applicant_type = st.radio("Select Applicant Type", ["Individual", "MSME"], horizontal=True)
+# ======================
+# MANUAL INPUTS
+# ======================
 
-# -------------------------------
-# INPUT SECTION
-# -------------------------------
-st.subheader("Applicant Details")
+CreditAmount = st.number_input("Credit Amount (₹)", value=5000)
 
-input_dict = {}
+Duration = st.number_input("Loan Duration (months)", value=24)
 
-if applicant_type == "Individual":
+Age = st.number_input("Age (years)", value=30)
 
-    col1, col2, col3 = st.columns(3)
+MonthlySalary = st.number_input("Monthly Salary (₹)", value=25000)
 
-    with col1:
-        input_dict["age"] = st.number_input("Age", 18, 70, 30)
-        input_dict["monthly_income"] = st.number_input("Monthly Income", 10000, 500000, 50000)
-        input_dict["employment_years"] = st.number_input("Employment Years", 0, 40, 5)
-        input_dict["credit_score"] = st.number_input("Credit Score", 300, 900, 650)
+SavingsAmount = st.number_input("Savings Amount (₹)", value=10000)
 
-    with col2:
-        input_dict["savings_balance"] = st.number_input("Savings Balance", 0, 1000000, 50000)
-        input_dict["existing_loans"] = st.number_input("Existing Loans", 0, 10, 1)
-        input_dict["loan_amount"] = st.number_input("Loan Amount", 10000, 2000000, 200000)
-        input_dict["loan_duration"] = st.number_input("Loan Duration (Months)", 6, 120, 24)
+Employment_ui = st.selectbox(
+    "Employment Status",
+    ["Unemployed", "Less than 1 year", "1 to 4 years", "4 to 7 years", "More than 7 years"]
+)
 
-    with col3:
-        input_dict["emi_ratio"] = st.slider("EMI Ratio", 0.0, 1.0, 0.3)
-        input_dict["digital_payment_frequency"] = st.number_input("Digital Payments / Month", 0, 500, 50)
-        input_dict["utility_bill_payment_score"] = st.slider("Utility Bill Payment Score", 0, 100, 80)
-        input_dict["dependents"] = st.number_input("Dependents", 0, 10, 2)
+PaymentStatus_ui = st.selectbox(
+    "Past Loan Repayment",
+    ["No previous loans", "All loans paid on time", "Existing loans being paid", "Some delays in payment", "Critical / defaulted before"]
+)
 
-else:
+Housing_ui = st.selectbox(
+    "Type of Housing",
+    ["Rented", "Owned", "Free / Provided by employer"]
+)
 
-    col1, col2, col3 = st.columns(3)
+# ======================
+# MAPPING
+# ======================
 
-    with col1:
-        input_dict["business_age"] = st.number_input("Business Age (Years)", 0, 30, 5)
-        input_dict["annual_turnover"] = st.number_input("Annual Turnover", 100000, 100000000, 2000000)
-        input_dict["gst_filing_score"] = st.slider("GST Filing Score", 0, 100, 75)
+def map_employment(val):
+    if val == "Unemployed":          return 1
+    if val == "Less than 1 year":    return 2
+    if val == "1 to 4 years":        return 3
+    if val == "4 to 7 years":        return 4
+    return 5
 
-    with col2:
-        input_dict["average_monthly_cashflow"] = st.number_input("Avg Monthly Cashflow", 10000, 5000000, 200000)
-        input_dict["existing_business_loans"] = st.number_input("Existing Business Loans", 0, 10, 1)
-        input_dict["sector_risk_score"] = st.slider("Sector Risk Score", 0.0, 1.0, 0.5)
+def map_housing(val):
+    if val == "Rented": return 1
+    if val == "Owned":  return 2
+    return 3
 
-    with col3:
-        input_dict["supplier_payment_score"] = st.slider("Supplier Payment Score", 0, 100, 80)
-        input_dict["upi_transaction_volume"] = st.number_input("UPI Transactions / Month", 0, 5000, 300)
-        input_dict["inventory_turnover_ratio"] = st.slider("Inventory Turnover Ratio", 0.1, 15.0, 3.0)
-        input_dict["profit_margin"] = st.slider("Profit Margin", 0.0, 0.5, 0.15)
-        input_dict["credit_history_score"] = st.slider("Credit History Score", 0, 100, 70)
-        input_dict["loan_amount"] = st.number_input("Loan Amount", 10000, 2000000, 500000)
-        input_dict["loan_duration"] = st.number_input("Loan Duration (Months)", 6, 120, 36)
+def map_payment(val):
+    if val == "No previous loans":              return 0
+    if val == "All loans paid on time":         return 1
+    if val == "Existing loans being paid":      return 2
+    if val == "Some delays in payment":         return 3
+    return 4
 
-# Fill missing features with 0
-for feature in feature_names:
-    if feature not in input_dict:
-        input_dict[feature] = 0
+def salary_to_instalment(salary, credit, duration):
+    if salary <= 0:
+        return 2
+    emi = credit / duration if duration > 0 else credit
+    ratio = (emi / salary) * 100
+    if ratio < 10:  return 1
+    if ratio < 20:  return 2
+    if ratio < 35:  return 3
+    return 4
 
-# Create DataFrame
-input_data = pd.DataFrame([input_dict])[feature_names]
+def savings_to_code(savings):
+    if savings <= 0:      return 5
+    if savings < 10000:   return 1
+    if savings < 50000:   return 2
+    if savings < 100000:  return 3
+    return 4
 
-# -------------------------------
+# ======================
 # PREDICTION
-# -------------------------------
-if st.button("Analyze Credit Risk"):
+# ======================
 
-    prob = model.predict_proba(input_data)[0][1]
-    prediction = model.predict(input_data)[0]
+if st.button("Evaluate Credit Risk"):
 
-    st.subheader("Prediction Result")
+    # Columns in exact same order as training data
+    input_df = pd.DataFrame([[
+        2,                                                          # Account Balance
+        Duration,                                                   # Duration of Credit (month)
+        map_payment(PaymentStatus_ui),                              # Payment Status of Previous Credit
+        3,                                                          # Purpose
+        CreditAmount,                                               # Credit Amount
+        savings_to_code(SavingsAmount),                             # Value Savings/Stocks
+        map_employment(Employment_ui),                              # Length of current employment
+        salary_to_instalment(MonthlySalary, CreditAmount, Duration),# Instalment per cent
+        3,                                                          # Sex & Marital Status
+        1,                                                          # Guarantors
+        2,                                                          # Duration in Current address
+        2,                                                          # Most valuable available asset
+        Age,                                                        # Age (years)
+        3,                                                          # Concurrent Credits
+        map_housing(Housing_ui),                                    # Type of apartment
+        1,                                                          # No of Credits at this Bank
+        3,                                                          # Occupation
+        1,                                                          # No of dependents
+        1,                                                          # Telephone
+        1,                                                          # Foreign Worker
+    ]], columns=[
+        "Account Balance", "Duration of Credit (month)",
+        "Payment Status of Previous Credit", "Purpose", "Credit Amount",
+        "Value Savings/Stocks", "Length of current employment",
+        "Instalment per cent", "Sex & Marital Status", "Guarantors",
+        "Duration in Current address", "Most valuable available asset",
+        "Age (years)", "Concurrent Credits", "Type of apartment",
+        "No of Credits at this Bank", "Occupation", "No of dependents",
+        "Telephone", "Foreign Worker",
+    ])
 
-    if prediction == 0:
-        st.success(f"Approved ✅ | Default Risk: {prob:.2%}")
+    prediction  = model.predict(input_df)[0]
+    probability = model.predict_proba(input_df)[0][1]
+
+    # ── Result ──────────────────────────────
+    st.subheader("Result")
+
+    if prediction == 1:
+        st.success("Low Credit Risk ✅")
     else:
-        st.error(f"High Risk ❌ | Default Risk: {prob:.2%}")
+        st.error("High Credit Risk ⚠")
 
-    # ----------------------------------
-    # ROC Curve
-    # ----------------------------------
+    st.write(f"Default Probability: {round(probability, 4)}")
+
+    st.divider()
+
+    # ── SHAP Waterfall ───────────────────────
+    st.subheader("Why this prediction? (SHAP)")
+
+    try:
+        # Get the final estimator from pipeline if model is a pipeline
+        if hasattr(model, "named_steps"):
+            # It's a pipeline — transform input then explain final step
+            preprocessed = model[:-1].transform(input_df)
+            final_model   = model[-1]
+            feature_names = input_df.columns.tolist()
+
+            explainer   = shap.TreeExplainer(final_model)
+            shap_values = explainer.shap_values(preprocessed)
+
+            if isinstance(shap_values, list):
+                sv     = shap_values[1][0]
+                base_v = explainer.expected_value[1]
+            else:
+                sv     = shap_values[0]
+                base_v = float(explainer.expected_value)
+
+            data_row = preprocessed[0]
+        else:
+            explainer   = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(input_df)
+
+            if isinstance(shap_values, list):
+                sv     = shap_values[1][0]
+                base_v = explainer.expected_value[1]
+            else:
+                sv     = shap_values[0]
+                base_v = float(explainer.expected_value)
+
+            data_row      = input_df.iloc[0].values
+            feature_names = input_df.columns.tolist()
+
+        explanation = shap.Explanation(
+            values        = sv,
+            base_values   = base_v,
+            data          = data_row,
+            feature_names = feature_names,
+        )
+
+        fig, ax = plt.subplots()
+        shap.waterfall_plot(explanation, show=False)
+        st.pyplot(fig)
+        plt.close(fig)
+
+    except Exception as e:
+        st.warning(f"SHAP could not run: {e}")
+
+    st.divider()
+
+    # ── Load real data for ROC and Confusion Matrix ──
+    try:
+        from sklearn.model_selection import train_test_split
+
+        df = pd.read_csv("german_credit.csv")
+        X  = df.drop(columns=["Creditability"])
+        y  = df["Creditability"]
+
+        _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        test_probs = model.predict_proba(X_test)[:, 1]
+        test_preds = model.predict(X_test)
+
+        data_loaded = True
+    except Exception as e:
+        data_loaded = False
+        st.warning(f"Could not load german_credit.csv: {e}")
+
+    # ── ROC Curve ────────────────────────────
     st.subheader("ROC Curve")
 
-    y_prob = model.predict_proba(input_data)[:,1]
-    fpr, tpr, _ = roc_curve([0], y_prob)
-    roc_auc = auc(fpr, tpr)
+    if data_loaded:
+        try:
+            fpr, tpr, _ = roc_curve(y_test, test_probs)
+            auc         = roc_auc_score(y_test, test_probs)
 
-    fig1 = plt.figure()
-    plt.plot(fpr, tpr)
-    plt.plot([0,1],[0,1])
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    st.pyplot(fig1)
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.plot(fpr, tpr, color="steelblue", label=f"AUC = {auc:.3f}")
+            ax.plot([0, 1], [0, 1], "--", color="gray")
+            ax.set_xlabel("False Positive Rate")
+            ax.set_ylabel("True Positive Rate")
+            ax.set_title("ROC Curve")
+            ax.legend()
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
 
-    # ----------------------------------
-    # Confusion Matrix (Simulated)
-    # ----------------------------------
+        except Exception as e:
+            st.warning(f"ROC curve could not be drawn: {e}")
+
+    st.divider()
+
+    # ── Confusion Matrix ─────────────────────
     st.subheader("Confusion Matrix")
 
-    cm = confusion_matrix([0], model.predict(input_data))
+    if data_loaded:
+        try:
+            cm = confusion_matrix(y_test, test_preds)
 
-    fig2 = plt.figure()
-    plt.imshow(cm)
-    plt.xlabel("Predicted")
-    plt.ylabel("Actual")
-    st.pyplot(fig2)
+            fig, ax = plt.subplots(figsize=(5, 4))
+            disp = ConfusionMatrixDisplay(cm, display_labels=["High Risk", "Low Risk"])
+            disp.plot(ax=ax, colorbar=False, cmap="Blues")
+            ax.set_title("Confusion Matrix")
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
 
-    # ----------------------------------
-    # SHAP Explainability
-    # ----------------------------------
-    st.subheader("Explainable AI (SHAP)")
-
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(input_data)
-
-    fig3 = plt.figure()
-    shap.summary_plot(shap_values, input_data, show=False)
-    st.pyplot(fig3)
+        except Exception as e:
+            st.warning(f"Confusion matrix could not be drawn: {e}")
