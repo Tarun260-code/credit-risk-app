@@ -144,43 +144,21 @@ if st.button("Evaluate Credit Risk"):
     st.subheader("Why this prediction? (SHAP)")
 
     try:
-        # Get the final estimator from pipeline if model is a pipeline
-        if hasattr(model, "named_steps"):
-            # It's a pipeline — transform input then explain final step
-            preprocessed = model[:-1].transform(input_df)
-            final_model   = model[-1]
-            feature_names = input_df.columns.tolist()
+        # Extract raw booster to avoid string conversion issues
+        booster = model.get_booster()
+        explainer = shap.TreeExplainer(booster)
 
-            explainer   = shap.TreeExplainer(final_model)
-            shap_values = explainer.shap_values(preprocessed)
+        input_array = input_df.values.astype(float)
+        shap_values = explainer.shap_values(input_array)
 
-            if isinstance(shap_values, list):
-                sv     = shap_values[1][0]
-                base_v = explainer.expected_value[1]
-            else:
-                sv     = shap_values[0]
-                base_v = float(explainer.expected_value)
-
-            data_row = preprocessed[0]
-        else:
-            explainer   = shap.TreeExplainer(model)
-            shap_values = explainer.shap_values(input_df)
-
-            if isinstance(shap_values, list):
-                sv     = shap_values[1][0]
-                base_v = explainer.expected_value[1]
-            else:
-                sv     = shap_values[0]
-                base_v = float(explainer.expected_value)
-
-            data_row      = input_df.iloc[0].values
-            feature_names = input_df.columns.tolist()
+        sv     = shap_values[0]
+        base_v = float(explainer.expected_value)
 
         explanation = shap.Explanation(
             values        = sv,
             base_values   = base_v,
-            data          = data_row,
-            feature_names = feature_names,
+            data          = input_array[0],
+            feature_names = input_df.columns.tolist(),
         )
 
         fig, ax = plt.subplots()
