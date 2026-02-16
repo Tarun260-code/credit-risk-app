@@ -1,8 +1,10 @@
 streamlit
 pandas
-numpy==1.26.4
-scikit-learn
+numpy
 matplotlib
-shap==0.44.1
+scikit-learn
+xgboost==1.7.6
+imbalanced-learn
+shap==0.42.1
 joblib
-xgboost
+reportlab

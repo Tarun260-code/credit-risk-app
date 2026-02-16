@@ -14,17 +14,58 @@ st.title("🏦 AI Credit Risk Evaluation")
 st.write("Select applicant type to begin.")
 
 # ─────────────────────────────────────────
-# Load Model
+# Load / Train Model
 # ─────────────────────────────────────────
 @st.cache_resource
 def load_model():
-    try:
-        import joblib
-        return joblib.load("model.pkl")
-    except Exception:
-        return None
+    import os, joblib
+    from sklearn.model_selection import train_test_split
+    from xgboost import XGBClassifier
+    from imblearn.over_sampling import SMOTE
 
-model = load_model()
+    if os.path.exists("model.pkl"):
+        return joblib.load("model.pkl"), True
+
+    if not os.path.exists("cs-training.csv"):
+        return None, False
+
+    df = pd.read_csv("cs-training.csv", index_col=0)
+    df.dropna(subset=["MonthlyIncome", "NumberOfDependents"], inplace=True)
+    for col in ["RevolvingUtilizationOfUnsecuredLines", "DebtRatio", "MonthlyIncome"]:
+        df[col] = df[col].clip(upper=df[col].quantile(0.99))
+    df = df[df["age"] >= 18]
+
+    df["TotalLate"] = (
+        df["NumberOfTime30-59DaysPastDueNotWorse"] +
+        df["NumberOfTime60-89DaysPastDueNotWorse"] +
+        df["NumberOfTimes90DaysLate"]
+    )
+    df["DelinquencyScore"] = (
+        df["NumberOfTime30-59DaysPastDueNotWorse"] * 1 +
+        df["NumberOfTime60-89DaysPastDueNotWorse"] * 2 +
+        df["NumberOfTimes90DaysLate"]              * 3
+    )
+    df["DebtToIncome"]       = df["DebtRatio"] / (df["MonthlyIncome"] + 1)
+    df["IncomePerDependent"] = df["MonthlyIncome"] / (df["NumberOfDependents"] + 1)
+
+    X = df.drop(columns=["SeriousDlqin2yrs"])
+    y = df["SeriousDlqin2yrs"]
+
+    X_train, _, y_train, _ = train_test_split(
+        X, y, test_size=0.25, random_state=42, stratify=y
+    )
+    X_res, y_res = SMOTE(random_state=42).fit_resample(X_train, y_train)
+
+    model = XGBClassifier(
+        n_estimators=300, max_depth=4, learning_rate=0.03,
+        subsample=0.8, colsample_bytree=0.8, min_child_weight=5,
+        reg_lambda=2.0, random_state=42, verbosity=0, eval_metric="logloss"
+    )
+    model.fit(X_res.values, y_res)
+    joblib.dump(model, "model.pkl")
+    return model, True
+
+model, model_loaded = load_model()
 
 # ─────────────────────────────────────────
 # Applicant Type
@@ -143,8 +184,8 @@ def draw_gauge(credit_score):
 # ML Charts — ROC, Confusion Matrix, SHAP
 # ─────────────────────────────────────────
 def show_ml_charts(input_df):
-    if model is None:
-        st.info("ℹ️ model.pkl not found — ML charts unavailable.")
+    if not model_loaded or model is None:
+        st.info("ℹ️ Model not available — ML charts unavailable.")
         return
 
     try:
@@ -153,7 +194,7 @@ def show_ml_charts(input_df):
                                      confusion_matrix, ConfusionMatrixDisplay)
         import shap
 
-        # Load & prep training data (same steps as train_model.py)
+        # Load & prep training data
         df = pd.read_csv("cs-training.csv", index_col=0)
         df.dropna(subset=["MonthlyIncome", "NumberOfDependents"], inplace=True)
         for col in ["RevolvingUtilizationOfUnsecuredLines", "DebtRatio", "MonthlyIncome"]:
@@ -183,7 +224,7 @@ def show_ml_charts(input_df):
         probs = model.predict_proba(X_test.values)[:, 1]
         preds = model.predict(X_test.values)
 
-        # ROC + Confusion Matrix side by side
+        # ── ROC + Confusion Matrix ──────────────
         st.subheader("📈 Model Performance")
         col_roc, col_cm = st.columns(2)
 
@@ -212,17 +253,30 @@ def show_ml_charts(input_df):
             st.pyplot(fig_c)
             plt.close(fig_c)
 
-        # SHAP for this applicant
+        # ── SHAP Waterfall ──────────────────────
         st.subheader("🔍 Why this prediction? (SHAP)")
         try:
             input_aligned = input_df.reindex(columns=X.columns, fill_value=0)
-            explainer     = shap.TreeExplainer(model)
-            shap_vals     = explainer.shap_values(input_aligned.values.astype(float))
+
+            # Force clean numpy float64 — fixes '[5E-1]' string bug
+            input_array = input_aligned.values.astype(np.float64)
+
+            explainer = shap.TreeExplainer(model)
+            shap_vals = np.array(
+                explainer.shap_values(input_array), dtype=np.float64
+            )
+
+            # expected_value can return as string '[5E-1]' — handle all cases
+            raw_base = explainer.expected_value
+            if isinstance(raw_base, (list, np.ndarray)):
+                base_val = float(np.array(raw_base).flat[0])
+            else:
+                base_val = float(str(raw_base).strip("[]"))
 
             explanation = shap.Explanation(
                 values        = shap_vals[0],
-                base_values   = float(explainer.expected_value),
-                data          = input_aligned.values[0],
+                base_values   = base_val,
+                data          = input_array[0],
                 feature_names = X.columns.tolist(),
             )
             fig_s, _ = plt.subplots()
@@ -367,6 +421,37 @@ def show_results(prob, report_data, pan, app_type, input_df):
         st.info("💡 Run: pip install reportlab  to enable PDF download")
 
 # ─────────────────────────────────────────
+# Build Input DataFrame for SHAP
+# ─────────────────────────────────────────
+def build_input_df(age, monthly_income, required_loan,
+                   missed_payment, existing_loan):
+    late_flag = 1 if missed_payment != "No" else 0
+    severe    = 1 if missed_payment == "Yes, multiple times" else 0
+    return pd.DataFrame([[
+        min(monthly_income / (monthly_income + 1) * 0.3, 1.0),  # RevolvingUtilization
+        age,                                                       # age
+        required_loan / (monthly_income * 12 + 1),                # DebtRatio
+        monthly_income,                                            # MonthlyIncome
+        1 if existing_loan != "No" else 0,                        # OpenCreditLines
+        severe,                                                    # 90DaysLate
+        0,                                                         # RealEstateLoans
+        late_flag,                                                 # 30-59DaysLate
+        0,                                                         # Dependents
+        0,                                                         # 60-89DaysLate
+        late_flag,                                                 # TotalLate
+        late_flag + severe,                                        # DelinquencyScore
+        required_loan / (monthly_income * 12 + 1) / (monthly_income + 1),  # DebtToIncome
+        monthly_income,                                            # IncomePerDependent
+    ]], columns=[
+        "RevolvingUtilizationOfUnsecuredLines", "age", "DebtRatio",
+        "MonthlyIncome", "NumberOfOpenCreditLinesAndLoans",
+        "NumberOfTimes90DaysLate", "NumberRealEstateLoansOrLines",
+        "NumberOfTime30-59DaysPastDueNotWorse", "NumberOfDependents",
+        "NumberOfTime60-89DaysPastDueNotWorse",
+        "TotalLate", "DelinquencyScore", "DebtToIncome", "IncomePerDependent",
+    ])
+
+# ─────────────────────────────────────────
 # INDIVIDUAL FORM
 # ─────────────────────────────────────────
 if applicant_type == "Individual":
@@ -375,15 +460,20 @@ if applicant_type == "Individual":
     col1, col2 = st.columns(2)
     with col1:
         name           = st.text_input("Full Name")
-        pan            = st.text_input("PAN Number", max_chars=10, help="Format: ABCDE1234F")
+        pan            = st.text_input("PAN Number", max_chars=10,
+                                       help="Format: ABCDE1234F")
         age            = st.number_input("Age (years)", 18, 100, 30)
-        monthly_income = st.number_input("Monthly Income (₹)", 0, 10000000, 40000, step=1000)
+        monthly_income = st.number_input("Monthly Income (₹)", 0, 10000000,
+                                         40000, step=1000)
     with col2:
-        required_loan    = st.number_input("Required Loan Amount (₹)", 0, 100000000, 200000, step=5000)
+        required_loan    = st.number_input("Required Loan Amount (₹)", 0,
+                                           100000000, 200000, step=5000)
         missed_payment   = st.selectbox("Have you missed any payment?",
-                                        ["No", "Yes, once or twice", "Yes, multiple times"])
+                                        ["No", "Yes, once or twice",
+                                         "Yes, multiple times"])
         existing_loan    = st.selectbox("Existing Loan?",
-                                        ["No", "Yes, manageable", "Yes, heavy burden"])
+                                        ["No", "Yes, manageable",
+                                         "Yes, heavy burden"])
         years_employment = st.number_input("Years of Employment", 0, 50, 3)
         has_insurance    = st.checkbox("Have Insurance?")
 
@@ -395,44 +485,20 @@ if applicant_type == "Individual":
             st.error("❌ Please enter applicant name.")
             st.stop()
 
-        prob = individual_risk(age, monthly_income, required_loan,
-                               missed_payment, existing_loan,
-                               years_employment, has_insurance)
-
-        # Map inputs to training feature space for SHAP
-        late_flag = 1 if missed_payment != "No" else 0
-        input_df  = pd.DataFrame([[
-            min(monthly_income / 40000 * 0.3, 1.0),
-            age,
-            required_loan / (monthly_income * 12 + 1),
-            monthly_income,
-            1 if existing_loan != "No" else 0,
-            1 if missed_payment == "Yes, multiple times" else 0,
-            0,
-            late_flag,
-            0,
-            0,
-            late_flag,
-            late_flag * 2,
-            required_loan / (monthly_income * 12 + 1) / (monthly_income + 1),
-            monthly_income,
-        ]], columns=[
-            "RevolvingUtilizationOfUnsecuredLines", "age", "DebtRatio",
-            "MonthlyIncome", "NumberOfOpenCreditLinesAndLoans",
-            "NumberOfTimes90DaysLate", "NumberRealEstateLoansOrLines",
-            "NumberOfTime30-59DaysPastDueNotWorse", "NumberOfDependents",
-            "NumberOfTime60-89DaysPastDueNotWorse",
-            "TotalLate", "DelinquencyScore", "DebtToIncome", "IncomePerDependent",
-        ])
+        prob     = individual_risk(age, monthly_income, required_loan,
+                                   missed_payment, existing_loan,
+                                   years_employment, has_insurance)
+        input_df = build_input_df(age, monthly_income, required_loan,
+                                  missed_payment, existing_loan)
 
         report_data = {
             "Name": name, "PAN": pan.upper(), "Age": age,
-            "Monthly Income": f"₹ {monthly_income:,}",
-            "Required Loan": f"₹ {required_loan:,}",
-            "Missed Payment": missed_payment,
-            "Existing Loan": existing_loan,
+            "Monthly Income":    f"₹ {monthly_income:,}",
+            "Required Loan":     f"₹ {required_loan:,}",
+            "Missed Payment":    missed_payment,
+            "Existing Loan":     existing_loan,
             "Years of Employment": years_employment,
-            "Insurance": "Yes" if has_insurance else "No",
+            "Insurance":         "Yes" if has_insurance else "No",
         }
         show_results(prob, report_data, pan, "Individual", input_df)
 
@@ -446,14 +512,18 @@ else:
     col1, col2 = st.columns(2)
     with col1:
         name           = st.text_input("Owner Name")
-        pan            = st.text_input("PAN Number", max_chars=10, help="Format: ABCDE1234F")
+        pan            = st.text_input("PAN Number", max_chars=10,
+                                       help="Format: ABCDE1234F")
         owner_age      = st.number_input("Owner Age (years)", 18, 100, 35)
-        monthly_income = st.number_input("Owner Monthly Income (₹)", 0, 10000000, 50000, step=1000)
+        monthly_income = st.number_input("Owner Monthly Income (₹)", 0,
+                                         10000000, 50000, step=1000)
     with col2:
         missed_payment   = st.selectbox("Missed any payment?",
-                                        ["No", "Yes, once or twice", "Yes, multiple times"])
+                                        ["No", "Yes, once or twice",
+                                         "Yes, multiple times"])
         existing_loan    = st.selectbox("Existing Loan?",
-                                        ["No", "Yes, manageable", "Yes, heavy burden"])
+                                        ["No", "Yes, manageable",
+                                         "Yes, heavy burden"])
         years_employment = st.number_input("Years Running Business", 0, 50, 3)
         has_insurance    = st.checkbox("Business Insurance?")
 
@@ -461,10 +531,13 @@ else:
     col3, col4 = st.columns(2)
     with col3:
         business_age   = st.number_input("Business Age (years)", 0, 100, 3)
-        gst_registered = st.radio("GST Registered?", ["Yes", "No"], horizontal=True) == "Yes"
-        required_loan  = st.number_input("Required Loan Amount (₹)", 0, 100000000, 500000, step=10000)
+        gst_registered = st.radio("GST Registered?", ["Yes", "No"],
+                                   horizontal=True) == "Yes"
+        required_loan  = st.number_input("Required Loan Amount (₹)", 0,
+                                         100000000, 500000, step=10000)
     with col4:
-        monthly_revenue = st.number_input("Monthly Revenue (₹)", 0, 100000000, 200000, step=5000)
+        monthly_revenue = st.number_input("Monthly Revenue (₹)", 0,
+                                          100000000, 200000, step=5000)
         profit_margin   = st.slider("Profit Margin (%)", 0, 100, 15)
 
     if st.button("🔍 Evaluate", use_container_width=True):
@@ -475,48 +548,28 @@ else:
             st.error("❌ Please enter owner name.")
             st.stop()
 
-        prob = msme_risk(owner_age, monthly_income, business_age,
-                         gst_registered, monthly_revenue, profit_margin,
-                         required_loan, missed_payment, existing_loan,
-                         years_employment, has_insurance)
-
-        # Map inputs to training feature space for SHAP
-        late_flag = 1 if missed_payment != "No" else 0
-        input_df  = pd.DataFrame([[
-            min(required_loan / (monthly_revenue * 12 + 1), 1.0),
-            owner_age,
-            required_loan / (monthly_revenue * 12 + 1),
-            monthly_income,
-            2 if existing_loan != "No" else 0,
-            1 if missed_payment == "Yes, multiple times" else 0,
-            0,
-            late_flag,
-            0,
-            0,
-            late_flag,
-            late_flag * 2,
-            required_loan / (monthly_revenue * 12 + 1) / (monthly_income + 1),
-            monthly_income,
-        ]], columns=[
-            "RevolvingUtilizationOfUnsecuredLines", "age", "DebtRatio",
-            "MonthlyIncome", "NumberOfOpenCreditLinesAndLoans",
-            "NumberOfTimes90DaysLate", "NumberRealEstateLoansOrLines",
-            "NumberOfTime30-59DaysPastDueNotWorse", "NumberOfDependents",
-            "NumberOfTime60-89DaysPastDueNotWorse",
-            "TotalLate", "DelinquencyScore", "DebtToIncome", "IncomePerDependent",
-        ])
+        prob     = msme_risk(owner_age, monthly_income, business_age,
+                             gst_registered, monthly_revenue, profit_margin,
+                             required_loan, missed_payment, existing_loan,
+                             years_employment, has_insurance)
+        input_df = build_input_df(owner_age, monthly_income, required_loan,
+                                  missed_payment, existing_loan)
 
         report_data = {
-            "Owner Name": name, "PAN": pan.upper(), "Owner Age": owner_age,
-            "Owner Monthly Income": f"₹ {monthly_income:,}",
-            "Business Age": f"{business_age} years",
-            "GST Registered": "Yes" if gst_registered else "No",
-            "Monthly Revenue": f"₹ {monthly_revenue:,}",
-            "Profit Margin": f"{profit_margin} %",
-            "Required Loan": f"₹ {required_loan:,}",
-            "Missed Payment": missed_payment,
-            "Existing Loan": existing_loan,
+            "Owner Name":          name,
+            "PAN":                 pan.upper(),
+            "Owner Age":           owner_age,
+            "Owner Monthly Income":f"₹ {monthly_income:,}",
+            "Business Age":        f"{business_age} years",
+            "GST Registered":      "Yes" if gst_registered else "No",
+            "Monthly Revenue":     f"₹ {monthly_revenue:,}",
+            "Profit Margin":       f"{profit_margin} %",
+            "Required Loan":       f"₹ {required_loan:,}",
+            "Missed Payment":      missed_payment,
+            "Existing Loan":       existing_loan,
             "Years Running Business": years_employment,
-            "Insurance": "Yes" if has_insurance else "No",
+            "Insurance":           "Yes" if has_insurance else "No",
         }
         show_results(prob, report_data, pan, "MSME", input_df)
+
+
