@@ -3,8 +3,8 @@ pandas
 numpy==1.26.4
 matplotlib
 scikit-learn
-xgboost==1.7.6
+xgboost==2.0.3
 imbalanced-learn
-shap==0.42.1
+shap==0.44.0
 joblib
 reportlab
