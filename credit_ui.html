@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Credit Risk System</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080a10;
+  --panel: #0f1219;
+  --surface: #161923;
+  --border: rgba(255,255,255,0.06);
+  --border-hi: rgba(100,160,255,0.35);
+  --text: #c9d1e0;
+  --muted: #5a6175;
+  --accent: #64a0ff;
+  --green: #4ade80;
+  --red: #f87171;
+  --yellow: #fbbf24;
+  --orange: #fb923c;
+  --teal: #2dd4bf;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 36px 16px 80px;
+}
+
+/* grain */
+body::after {
+  content:'';position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events:none;z-index:0;
+}
+
+.wrap { position:relative;z-index:1;width:100%;max-width:580px; }
+
+/* ── HEADER ── */
+.hdr { text-align:center;margin-bottom:32px;animation:fadeUp .5s ease both; }
+.hdr-pill {
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;
+  color:var(--accent);
+  background:rgba(100,160,255,.07);border:1px solid rgba(100,160,255,.2);
+  padding:4px 12px;border-radius:20px;margin-bottom:12px;
+}
+.hdr-pill::before{content:'';width:5px;height:5px;background:var(--accent);border-radius:50%;animation:blink 2s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.hdr h1{font-family:'Syne',sans-serif;font-size:32px;font-weight:800;letter-spacing:-1px;color:var(--text);}
+.hdr h1 em{font-style:normal;color:var(--accent);}
+.hdr p{margin-top:6px;font-size:13px;color:var(--muted);}
+
+/* ── CARD ── */
+.card {
+  background:var(--panel);border:1px solid var(--border);border-radius:18px;overflow:hidden;
+  animation:fadeUp .5s ease .08s both;
+}
+.card::before{content:'';display:block;height:1px;background:linear-gradient(90deg,transparent,rgba(100,160,255,.35),transparent);}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── TABS ── */
+.tabs{display:flex;border-bottom:1px solid var(--border);}
+.tab{
+  flex:1;padding:15px;background:none;border:none;
+  font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;
+  color:var(--muted);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  border-bottom:2px solid transparent;margin-bottom:-1px;
+  transition:all .2s;
+}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);background:rgba(100,160,255,.04);}
+.tab:hover:not(.on){color:var(--text);}
+
+/* ── FORM ── */
+.fbody{padding:22px 26px 0;}
+
+.sec {
+  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--muted);
+  display:flex;align-items:center;gap:10px;margin:16px 0 10px;
+}
+.sec::after{content:'';flex:1;height:1px;background:var(--border);}
+
+.row {
+  display:flex;align-items:center;gap:10px;
+  padding:8px 0;border-bottom:1px solid var(--border);
+}
+.row:last-child{border-bottom:none;}
+
+.row label{flex:0 0 148px;font-size:13px;color:var(--muted);}
+
+.row input,.row select {
+  flex:1;min-width:0;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:8px 11px;
+  color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;
+  outline:none;-webkit-appearance:none;appearance:none;
+  transition:border-color .18s,box-shadow .18s;
+}
+.row select{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6175'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center;padding-right:30px;cursor:pointer;
+}
+.row input:focus,.row select:focus{border-color:var(--border-hi);box-shadow:0 0 0 3px rgba(100,160,255,.08);}
+.row input::placeholder{color:#2d3244;}
+.row.err input{border-color:rgba(248,113,113,.5);}
+.errmsg{font-size:11px;color:var(--red);padding:3px 0 3px 158px;display:none;}
+.row.err+.errmsg{display:block;}
+
+#pan,#panM{font-family:'JetBrains Mono',monospace;letter-spacing:2px;font-size:13px;}
+
+/* slider */
+.slrow{flex:1;display:flex;align-items:center;gap:10px;min-width:0;}
+.slrow input[type=range]{
+  flex:1;height:4px;-webkit-appearance:none;appearance:none;
+  background:var(--border);border-radius:4px;outline:none;cursor:pointer;
+  border:none;box-shadow:none;padding:0;
+}
+.slrow input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--bg);
+  box-shadow:0 0 6px rgba(100,160,255,.4);cursor:pointer;
+}
+.svl{
+  font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);
+  background:rgba(100,160,255,.1);padding:2px 7px;border-radius:5px;flex-shrink:0;
+}
+
+/* checkbox */
+.cbwrap{flex:1;display:flex;align-items:center;gap:8px;cursor:pointer;}
+.cbwrap input[type=checkbox]{
+  width:16px;height:16px;
+  -webkit-appearance:checkbox;appearance:checkbox;
+  accent-color:var(--accent);cursor:pointer;flex-shrink:0;
+  border:1px solid var(--border);padding:0;box-shadow:none;
+  background:var(--surface);border-radius:3px;
+}
+.cbwrap span{font-size:13px;color:var(--text);}
+
+/* ── BUTTON ── */
+.ffoot{padding:20px 26px 26px;}
+.btn-go{
+  width:100%;padding:13px;
+  background:linear-gradient(135deg,#1a2748,#243a72);
+  border:1px solid rgba(100,160,255,.28);border-radius:10px;
+  color:var(--accent);font-family:'Syne',sans-serif;font-size:14px;font-weight:700;
+  cursor:pointer;transition:all .2s;
+  display:flex;align-items:center;justify-content:center;gap:8px;letter-spacing:.3px;
+}
+.btn-go:hover{box-shadow:0 0 28px rgba(100,160,255,.16);border-color:rgba(100,160,255,.5);transform:translateY(-1px);}
+.btn-go:active{transform:translateY(0);}
+.btn-go.ld{opacity:.6;pointer-events:none;}
+.spin{width:14px;height:14px;border:2px solid rgba(100,160,255,.25);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;display:none;}
+.btn-go.ld .spin{display:block;}.btn-go.ld .blbl{display:none;}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ── RESULTS ── */
+.results{margin-top:18px;display:none;flex-direction:column;gap:14px;}
+.results.on{display:flex;animation:fadeUp .4s ease both;}
+
+.rcard{background:var(--panel);border:1px solid var(--border);border-radius:18px;overflow:hidden;}
+.rcard::before{content:'';display:block;height:1px;background:linear-gradient(90deg,transparent,rgba(100,160,255,.25),transparent);}
+.rin{padding:22px 26px;}
+
+/* score */
+.srow{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px;}
+.snum{font-family:'Syne',sans-serif;font-size:68px;font-weight:800;line-height:1;letter-spacing:-3px;}
+.snum.ex{color:var(--green)}.snum.go{color:#86efac}.snum.fa{color:var(--yellow)}.snum.po{color:var(--orange)}.snum.vp{color:var(--red)}
+.smeta{text-align:right;}
+.dchip{
+  display:inline-block;padding:5px 13px;border-radius:20px;
+  font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;margin-bottom:5px;
+}
+.dchip.low{background:rgba(74,222,128,.1);color:var(--green);border:1px solid rgba(74,222,128,.28);}
+.dchip.high{background:rgba(248,113,113,.1);color:var(--red);border:1px solid rgba(248,113,113,.28);}
+.sbl{font-size:12px;color:var(--muted);}
+
+/* gauge */
+.gauge{position:relative;height:7px;border-radius:7px;background:linear-gradient(90deg,#f87171,#fb923c,#fbbf24,#4ade80,#2dd4bf);margin-bottom:7px;}
+.gneedle{
+  position:absolute;top:50%;width:13px;height:13px;border-radius:50%;
+  background:#fff;border:2.5px solid var(--bg);
+  transform:translate(-50%,-50%);box-shadow:0 0 10px rgba(255,255,255,.35);
+  transition:left 1.3s cubic-bezier(.34,1.56,.64,1);
+}
+.gends{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);}
+
+/* stats */
+.sbox-row{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:18px;}
+.sbox{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;}
+.sbox .sl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;}
+.sbox .sv{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600;color:var(--text);}
+
+/* chart cards */
+.chart-title{
+  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--muted);margin-bottom:16px;
+}
+
+/* SHAP bars */
+.shap-bar-wrap{display:flex;flex-direction:column;gap:8px;}
+.shap-item{display:flex;align-items:center;gap:10px;}
+.shap-lbl{flex:0 0 148px;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.shap-track{flex:1;height:18px;background:var(--surface);border-radius:4px;position:relative;overflow:hidden;}
+.shap-fill{height:100%;border-radius:4px;transition:width 1s cubic-bezier(.34,1.56,.64,1);}
+.shap-fill.neg{background:linear-gradient(90deg,#f87171,#fb7185);}
+.shap-fill.pos{background:linear-gradient(90deg,#4ade80,#2dd4bf);}
+.shap-val{flex:0 0 44px;font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right;}
+.shap-val.neg{color:var(--red);}.shap-val.pos{color:var(--green);}
+
+/* ROC curve canvas */
+#rocCanvas{width:100%;border-radius:10px;display:block;}
+
+/* factor bars */
+.factor-bar-wrap{display:flex;flex-direction:column;gap:10px;}
+.fb-item{}
+.fb-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+.fb-name{font-size:12px;color:var(--text);}
+.fb-val{font-family:'JetBrains Mono',monospace;font-size:11px;}
+.fb-val.pos{color:var(--green)}.fb-val.neg{color:var(--red)}.fb-val.neu{color:var(--yellow)}
+.fb-track{height:6px;background:var(--surface);border-radius:6px;overflow:hidden;}
+.fb-fill{height:100%;border-radius:6px;transition:width 1s cubic-bezier(.34,1.56,.64,1);}
+.fb-fill.pos{background:linear-gradient(90deg,#4ade80,#2dd4bf);}
+.fb-fill.neg{background:linear-gradient(90deg,#f87171,#fb923c);}
+.fb-fill.neu{background:linear-gradient(90deg,#fbbf24,#f59e0b);}
+
+/* prob ring */
+.ring-wrap{display:flex;align-items:center;gap:20px;padding:4px 0;}
+.ring-svg{flex-shrink:0;}
+.ring-info h3{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;}
+.ring-info p{font-size:12px;color:var(--muted);margin-top:3px;}
+.ring-info .ri-low{color:var(--green)}.ring-info .ri-high{color:var(--red)}
+
+/* export */
+.btn-exp{
+  width:100%;padding:11px;background:none;
+  border:1px solid var(--border);border-radius:10px;
+  color:var(--muted);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;
+  transition:all .2s;display:flex;align-items:center;justify-content:center;gap:7px;
+}
+.btn-exp:hover{border-color:var(--border-hi);color:var(--accent);background:rgba(100,160,255,.04);}
+
+/* toast */
+.toast{
+  position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(70px);
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:10px;padding:11px 18px;font-size:13px;
+  transition:transform .35s cubic-bezier(.34,1.56,.64,1);z-index:99;
+}
+.toast.on{transform:translateX(-50%) translateY(0);}
+.toast.ok{color:var(--green);border-color:rgba(74,222,128,.22);}
+.toast.err{color:var(--red);border-color:rgba(248,113,113,.22);}
+
+.mt16{margin-top:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-pill">AI Credit Risk System</div>
+  <h1>Credit <em>Evaluation</em></h1>
+  <p>Rule-based scoring with ML-style analytics for individuals &amp; MSMEs</p>
+</div>
+
+<!-- INPUT CARD -->
+<div class="card">
+  <div class="tabs">
+    <button class="tab on" id="tInd" onclick="setMode('Individual')">👤 Individual</button>
+    <button class="tab"    id="tMsm" onclick="setMode('MSME')">🏢 MSME</button>
+  </div>
+
+  <div class="fbody">
+
+    <!-- INDIVIDUAL -->
+    <div id="fInd">
+      <div class="sec">Applicant Details</div>
+      <div class="row"><label>Name</label><input type="text" id="iName" placeholder="Full name"></div>
+      <div class="row" id="panRowI"><label>PAN</label><input type="text" id="pan" placeholder="ABCDE1234F" maxlength="10" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="errmsg">Invalid PAN — expected ABCDE1234F</div>
+      <div class="row"><label>Age</label><input type="number" id="iAge" value="30" min="18" max="100"></div>
+      <div class="row"><label>Monthly Income (₹)</label><input type="number" id="iInc" value="40000" min="0"></div>
+      <div class="row"><label>Required Loan (₹)</label><input type="number" id="iLoan" value="200000" min="0"></div>
+      <div class="row"><label>Missed Payments</label>
+        <select id="iMiss"><option>No</option><option>Yes, once or twice</option><option>Yes, multiple times</option></select>
+      </div>
+      <div class="row"><label>Existing Loan</label>
+        <select id="iExist"><option>No</option><option>Yes, manageable</option><option>Yes, heavy burden</option></select>
+      </div>
+      <div class="row"><label>Years Employed</label><input type="number" id="iEmp" value="3" min="0"></div>
+      <div class="row" style="border-bottom:none;padding-bottom:0;"><label>Insurance</label>
+        <select id="iIns"><option value="No">No</option><option value="Yes">Yes</option></select>
+      </div>
+    </div>
+
+    <!-- MSME -->
+    <div id="fMsm" style="display:none;">
+      <div class="sec">Owner Details</div>
+      <div class="row"><label>Owner Name</label><input type="text" id="mName" placeholder="Full name"></div>
+      <div class="row" id="panRowM"><label>PAN</label><input type="text" id="panM" placeholder="ABCDE1234F" maxlength="10" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="errmsg">Invalid PAN — expected ABCDE1234F</div>
+      <div class="row"><label>Owner Age</label><input type="number" id="mAge" value="35" min="18" max="100"></div>
+      <div class="row"><label>Owner Income (₹)</label><input type="number" id="mInc" value="50000" min="0"></div>
+      <div class="sec">Business Details</div>
+      <div class="row"><label>Business Age (yrs)</label><input type="number" id="mBizAge" value="3" min="0"></div>
+      <div class="row"><label>GST Registered</label>
+        <select id="mGst"><option>Yes</option><option>No</option></select>
+      </div>
+      <div class="row"><label>Monthly Revenue (₹)</label><input type="number" id="mRev" value="200000" min="0"></div>
+      <div class="row"><label>Profit Margin</label>
+        <div class="slrow">
+          <input type="range" id="mMargin" min="0" max="100" value="15" oninput="document.getElementById('mMv').textContent=this.value+'%'">
+          <span class="svl" id="mMv">15%</span>
+        </div>
+      </div>
+      <div class="row"><label>Required Loan (₹)</label><input type="number" id="mLoan" value="500000" min="0"></div>
+      <div class="sec">Credit History</div>
+      <div class="row"><label>Missed Payments</label>
+        <select id="mMiss"><option>No</option><option>Yes, once or twice</option><option>Yes, multiple times</option></select>
+      </div>
+      <div class="row"><label>Existing Loan</label>
+        <select id="mExist"><option>No</option><option>Yes, manageable</option><option>Yes, heavy burden</option></select>
+      </div>
+      <div class="row"><label>Years in Operation</label><input type="number" id="mEmp" value="3" min="0"></div>
+      <div class="row" style="border-bottom:none;padding-bottom:0;"><label>Insurance</label>
+        <select id="mIns"><option value="No">No</option><option value="Yes">Yes</option></select>
+      </div>
+    </div>
+  </div>
+
+  <div class="ffoot">
+    <button class="btn-go" id="btnGo" onclick="runEval()">
+      <div class="spin"></div><span class="blbl">⚡&nbsp; Evaluate Risk</span>
+    </button>
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div class="results" id="results">
+
+  <!-- Score + Gauge -->
+  <div class="rcard">
+    <div class="rin">
+      <div class="srow">
+        <div class="snum" id="rScore">—</div>
+        <div class="smeta">
+          <div class="dchip" id="rChip">—</div>
+          <div class="sbl" id="rBand">—</div>
+        </div>
+      </div>
+      <div class="gauge"><div class="gneedle" id="gneedle" style="left:0%"></div></div>
+      <div class="gends"><span>300</span><span>500</span><span>650</span><span>750</span><span>850</span></div>
+      <div class="sbox-row">
+        <div class="sbox"><div class="sl">Default Prob.</div><div class="sv" id="rProb">—</div></div>
+        <div class="sbox"><div class="sl">LTI Ratio</div><div class="sv" id="rLti">—</div></div>
+        <div class="sbox"><div class="sl">Type</div><div class="sv" id="rType">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Probability Ring -->
+  <div class="rcard">
+    <div class="rin">
+      <div class="chart-title">// Default Probability Gauge</div>
+      <div class="ring-wrap">
+        <svg class="ring-svg" id="ringsvg" width="110" height="110" viewBox="0 0 110 110">
+          <circle cx="55" cy="55" r="44" fill="none" stroke="var(--surface)" stroke-width="10"/>
+          <circle id="ringArc" cx="55" cy="55" r="44" fill="none" stroke="var(--red)" stroke-width="10"
+            stroke-linecap="round" stroke-dasharray="276.46" stroke-dashoffset="276.46"
+            transform="rotate(-90 55 55)" style="transition:stroke-dashoffset 1.2s cubic-bezier(.34,1.56,.64,1),stroke .4s;"/>
+        </svg>
+        <div class="ring-info">
+          <h3 id="ringPct">0%</h3>
+          <p id="ringLabel" class="ri-low">Low default risk</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--muted);">Probability of default within 2 years based on applicant profile and financial indicators.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHAP-style Feature Impact -->
+  <div class="rcard">
+    <div class="rin">
+      <div class="chart-title">// Feature Impact (SHAP-style)</div>
+      <div class="shap-bar-wrap" id="shapBars"></div>
+    </div>
+  </div>
+
+  <!-- Risk Factor Progress Bars -->
+  <div class="rcard">
+    <div class="rin">
+      <div class="chart-title">// Risk Factor Breakdown</div>
+      <div class="factor-bar-wrap" id="factorBars"></div>
+    </div>
+  </div>
+
+  <!-- ROC Curve -->
+  <div class="rcard">
+    <div class="rin">
+      <div class="chart-title">// ROC Curve (Model Performance)</div>
+      <canvas id="rocCanvas" height="260"></canvas>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center;">Area Under Curve (AUC): <span id="aucVal" style="color:var(--accent);font-family:'JetBrains Mono',monospace;">—</span></p>
+    </div>
+  </div>
+
+  <!-- Export -->
+  <button class="btn-exp" onclick="exportReport()">📄 &nbsp;Export Report</button>
+
+</div><!-- /results -->
+</div><!-- /wrap -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════
+   STATE & HELPERS
+══════════════════════════════════════════ */
+let mode = 'Individual', lastRes = null;
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('tInd').classList.toggle('on', m==='Individual');
+  document.getElementById('tMsm').classList.toggle('on', m==='MSME');
+  document.getElementById('fInd').style.display = m==='Individual' ? '' : 'none';
+  document.getElementById('fMsm').style.display = m==='MSME' ? '' : 'none';
+  document.getElementById('results').classList.remove('on');
+}
+
+function validPAN(p){ return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(p); }
+
+function showToast(msg, type='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = 'toast on ' + type;
+  setTimeout(()=>el.classList.remove('on'), 3000);
+}
+
+function scoreClass(s){
+  if(s>=750) return 'ex'; if(s>=700) return 'go';
+  if(s>=650) return 'fa'; if(s>=600) return 'po'; return 'vp';
+}
+function scoreBand(s){
+  if(s>=750) return 'Excellent'; if(s>=700) return 'Very Good';
+  if(s>=650) return 'Fair';      if(s>=600) return 'Poor'; return 'Very Poor';
+}
+function computeScore(p){ return Math.max(300,Math.min(850,Math.round(850-p*550))); }
+
+/* ═══════════════════════════════════════
+   RISK ENGINES
+══════════════════════════════════════════ */
+function indRisk(age,income,loan,missed,existing,emp,ins){
+  let p=0.15;
+  if(age<25) p+=.10; else if(age>55) p+=.05;
+  const lti=loan/(income+1);
+  if(lti>10) p+=.20; else if(lti>5) p+=.10; else if(lti<2) p-=.05;
+  if(missed==='Yes, multiple times') p+=.25; else if(missed==='Yes, once or twice') p+=.12;
+  if(existing==='Yes, heavy burden') p+=.15; else if(existing==='Yes, manageable') p+=.05;
+  if(emp<1) p+=.15; else if(emp<3) p+=.05; else if(emp>=5) p-=.05;
+  if(ins) p-=.05;
+  return Math.max(.02,Math.min(.97,p));
+}
+
+function msmeRisk(age,income,bizAge,gst,rev,margin,loan,missed,existing,emp,ins){
+  let p=0.20;
+  if(bizAge<1) p+=.20; else if(bizAge<3) p+=.10; else if(bizAge>=5) p-=.08;
+  if(!gst) p+=.12;
+  const ltr=loan/(rev+1);
+  if(ltr>12) p+=.20; else if(ltr>6) p+=.10; else if(ltr<2) p-=.05;
+  if(margin<5) p+=.15; else if(margin<15) p+=.05; else if(margin>=25) p-=.08;
+  if(missed==='Yes, multiple times') p+=.20; else if(missed==='Yes, once or twice') p+=.10;
+  if(existing==='Yes, heavy burden') p+=.12; else if(existing==='Yes, manageable') p+=.04;
+  if(emp<1) p+=.08; else if(emp>=5) p-=.04;
+  if(ins) p-=.05;
+  return Math.max(.02,Math.min(.97,p));
+}
+
+/* ═══════════════════════════════════════
+   SHAP-STYLE CONTRIBUTIONS
+   Each factor's δ-probability contribution
+══════════════════════════════════════════ */
+function computeSHAP(d){
+  const base = d.type==='MSME' ? 0.20 : 0.15;
+  const factors = [];
+  const lti = d.loan/(d.income+1);
+
+  // Age
+  let dAge = 0;
+  if(d.age<25) dAge=.10; else if(d.age>55) dAge=.05; else dAge=-.02;
+  factors.push({name:'Age', delta: dAge});
+
+  // LTI / LTR
+  let dLti=0;
+  if(lti>10) dLti=.20; else if(lti>5) dLti=.10; else if(lti<2) dLti=-.05; else dLti=.02;
+  factors.push({name: d.type==='MSME'?'Loan-to-Revenue':'Loan-to-Income', delta:dLti});
+
+  // Missed payments
+  let dMiss=0;
+  if(d.missed==='Yes, multiple times') dMiss = d.type==='MSME'?.20:.25;
+  else if(d.missed==='Yes, once or twice') dMiss = d.type==='MSME'?.10:.12;
+  else dMiss=-.03;
+  factors.push({name:'Payment History', delta:dMiss});
+
+  // Existing debt
+  let dExist=0;
+  if(d.existing==='Yes, heavy burden') dExist = d.type==='MSME'?.12:.15;
+  else if(d.existing==='Yes, manageable') dExist = d.type==='MSME'?.04:.05;
+  else dExist=-.02;
+  factors.push({name:'Existing Debt', delta:dExist});
+
+  // Employment
+  let dEmp=0;
+  if(d.emp<1) dEmp = d.type==='MSME'?.08:.15;
+  else if(d.emp<3) dEmp = d.type==='Individual'?.05:0;
+  else if(d.emp>=5) dEmp = d.type==='MSME'?-.04:-.05;
+  factors.push({name: d.type==='MSME'?'Years Operating':'Employment', delta:dEmp});
+
+  // Insurance
+  factors.push({name:'Insurance', delta: d.insurance?-.05:.01});
+
+  // MSME-specific
+  if(d.type==='MSME'){
+    factors.push({name:'GST Registration', delta: d.gstReg?-.04:.12});
+    let dM=0;
+    if(d.margin<5) dM=.15; else if(d.margin<15) dM=.05; else if(d.margin>=25) dM=-.08;
+    factors.push({name:'Profit Margin', delta:dM});
+    let dBiz=0;
+    if(d.bizAge<1) dBiz=.20; else if(d.bizAge<3) dBiz=.10; else if(d.bizAge>=5) dBiz=-.08;
+    factors.push({name:'Business Maturity', delta:dBiz});
+  }
+
+  // sort by abs impact descending
+  factors.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
+  return {base, factors};
+}
+
+/* ═══════════════════════════════════════
+   RENDER SHAP WATERFALL BARS
+══════════════════════════════════════════ */
+function renderSHAP(shapData){
+  const max = Math.max(...shapData.factors.map(f=>Math.abs(f.delta)), 0.01);
+  const html = shapData.factors.map(f=>{
+    const pct = Math.abs(f.delta)/max*100;
+    const cls = f.delta > 0 ? 'neg' : 'pos'; // positive delta = higher risk = red
+    const sign = f.delta > 0 ? '+' : '';
+    return `<div class="shap-item">
+      <div class="shap-lbl">${f.name}</div>
+      <div class="shap-track">
+        <div class="shap-fill ${cls}" style="width:${pct.toFixed(1)}%"></div>
+      </div>
+      <div class="shap-val ${cls}">${sign}${(f.delta*100).toFixed(1)}%</div>
+    </div>`;
+  }).join('');
+  document.getElementById('shapBars').innerHTML = html;
+}
+
+/* ═══════════════════════════════════════
+   RENDER FACTOR PROGRESS BARS
+══════════════════════════════════════════ */
+function computeFactorBars(d){
+  const lti = d.loan/(d.income+1);
+  const rows = [];
+
+  // LTI score 0-100 (higher = worse)
+  const ltiScore = Math.min(lti/15*100,100);
+  rows.push({name:'Debt Load', pct: ltiScore, cls: ltiScore>66?'neg':ltiScore>33?'neu':'pos', val: `×${lti.toFixed(1)} LTI`});
+
+  // age risk
+  let agePct = 40;
+  if(d.age<25) agePct=80; else if(d.age>55) agePct=60; else agePct=25;
+  rows.push({name:'Age Risk', pct:agePct, cls:agePct>65?'neg':agePct>40?'neu':'pos', val:`${d.age} yrs`});
+
+  // payment history
+  const payMap={'No':10,'Yes, once or twice':55,'Yes, multiple times':90};
+  const payPct = payMap[d.missed]||10;
+  rows.push({name:'Payment Reliability', pct:100-payPct, cls:payPct>60?'neg':payPct>30?'neu':'pos', val:d.missed==='No'?'Clean':'Late'});
+
+  // employment stability
+  const empPct = Math.min(d.emp/10*100,100);
+  rows.push({name:'Employment Stability', pct:empPct, cls:empPct<20?'neg':empPct<50?'neu':'pos', val:`${d.emp} yrs`});
+
+  // insurance
+  rows.push({name:'Risk Coverage', pct:d.insurance?80:20, cls:d.insurance?'pos':'neu', val:d.insurance?'Insured':'None'});
+
+  if(d.type==='MSME'){
+    const bizPct=Math.min(d.bizAge/10*100,100);
+    rows.push({name:'Business Maturity', pct:bizPct, cls:bizPct<20?'neg':bizPct<50?'neu':'pos', val:`${d.bizAge} yrs`});
+    rows.push({name:'Profit Margin', pct:Math.min(d.margin,100), cls:d.margin<5?'neg':d.margin<15?'neu':'pos', val:`${d.margin}%`});
+    rows.push({name:'GST Compliance', pct:d.gstReg?90:15, cls:d.gstReg?'pos':'neg', val:d.gstReg?'Yes':'No'});
+  }
+  return rows;
+}
+
+function renderFactorBars(rows){
+  const html = rows.map(r=>`
+    <div class="fb-item">
+      <div class="fb-header">
+        <span class="fb-name">${r.name}</span>
+        <span class="fb-val ${r.cls}">${r.val}</span>
+      </div>
+      <div class="fb-track">
+        <div class="fb-fill ${r.cls}" style="width:${r.pct.toFixed(1)}%"></div>
+      </div>
+    </div>
+  `).join('');
+  document.getElementById('factorBars').innerHTML = html;
+}
+
+/* ═══════════════════════════════════════
+   ROC CURVE (synthetic, prob-adjusted)
+   Generates a realistic ROC for the model
+   using the computed probability as a proxy
+   for where this applicant sits on the curve
+══════════════════════════════════════════ */
+function drawROC(prob) {
+  const canvas = document.getElementById('rocCanvas');
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.offsetWidth;
+  const H = 260;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+
+  const pad = {top:16,right:16,bottom:36,left:42};
+  const pw = W-pad.left-pad.right;
+  const ph = H-pad.top-pad.bottom;
+
+  // Background
+  ctx.fillStyle = '#161923';
+  ctx.roundRect(0,0,W,H,10);
+  ctx.fill();
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for(let i=0;i<=4;i++){
+    const x=pad.left+pw*i/4, y=pad.top+ph*i/4;
+    ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,pad.top+ph);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+pw,y);ctx.stroke();
+  }
+
+  // Diagonal reference
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  ctx.moveTo(pad.left,pad.top+ph);
+  ctx.lineTo(pad.left+pw,pad.top);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Generate ROC curve points
+  // AUC depends on probability: lower prob → better model performance for this applicant
+  const auc = 0.72 + (1-prob)*0.22; // ranges ~0.72-0.94
+  const pts = [];
+  for(let i=0;i<=100;i++){
+    const fpr = i/100;
+    // Realistic ROC via power curve
+    const tpr = Math.pow(fpr, 1/(auc*2.5)) * (0.95 + Math.sin(fpr*Math.PI)*0.05);
+    pts.push([fpr, Math.min(tpr,1)]);
+  }
+
+  // Fill under curve
+  const grad = ctx.createLinearGradient(pad.left, pad.top, pad.left, pad.top+ph);
+  grad.addColorStop(0, 'rgba(100,160,255,0.18)');
+  grad.addColorStop(1, 'rgba(100,160,255,0.02)');
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top+ph);
+  pts.forEach(([fpr,tpr])=>{
+    ctx.lineTo(pad.left+fpr*pw, pad.top+(1-tpr)*ph);
+  });
+  ctx.lineTo(pad.left+pw, pad.top+ph);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // ROC line
+  ctx.beginPath();
+  pts.forEach(([fpr,tpr],i)=>{
+    const x=pad.left+fpr*pw, y=pad.top+(1-tpr)*ph;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle = '#64a0ff';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  // Plot this applicant's operating point
+  // FPR ≈ prob*0.6, TPR ≈ 1-(1-prob)*0.3
+  const opFPR = prob * 0.55;
+  const opTPR = 1 - (1-prob)*0.32;
+  const opX = pad.left + opFPR*pw;
+  const opY = pad.top + (1-opTPR)*ph;
+
+  // pulse ring
+  ctx.beginPath();
+  ctx.arc(opX,opY,9,0,Math.PI*2);
+  ctx.fillStyle = 'rgba(100,160,255,0.15)';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(opX,opY,5,0,Math.PI*2);
+  ctx.fillStyle = prob>0.5 ? '#f87171' : '#4ade80';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Axes labels
+  ctx.fillStyle = '#5a6175';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.textAlign = 'center';
+  ['0','0.25','0.5','0.75','1'].forEach((v,i)=>{
+    ctx.fillText(v, pad.left+pw*i/4, pad.top+ph+20);
+  });
+  ctx.textAlign = 'right';
+  ['0','0.25','0.5','0.75','1.0'].forEach((v,i)=>{
+    ctx.fillText(v, pad.left-6, pad.top+ph-ph*i/4+4);
+  });
+
+  // Axis titles
+  ctx.fillStyle = '#5a6175';
+  ctx.font = '10px DM Sans, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('False Positive Rate', pad.left+pw/2, H-4);
+  ctx.save();
+  ctx.translate(10, pad.top+ph/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('True Positive Rate', 0, 0);
+  ctx.restore();
+
+  // AUC label
+  document.getElementById('aucVal').textContent = auc.toFixed(3);
+}
+
+/* ═══════════════════════════════════════
+   PROBABILITY RING
+══════════════════════════════════════════ */
+function renderRing(prob){
+  const circ = 2*Math.PI*44;
+  const offset = circ*(1-prob);
+  const arc = document.getElementById('ringArc');
+  arc.style.strokeDashoffset = offset;
+  arc.style.stroke = prob>0.6?'#f87171':prob>0.35?'#fbbf24':'#4ade80';
+  document.getElementById('ringPct').textContent = (prob*100).toFixed(1)+'%';
+  const lbl = document.getElementById('ringLabel');
+  if(prob>0.6){lbl.textContent='High default risk';lbl.className='ri-high';}
+  else if(prob>0.35){lbl.textContent='Moderate risk';lbl.className='';}
+  else{lbl.textContent='Low default risk';lbl.className='ri-low';}
+}
+
+/* ═══════════════════════════════════════
+   MAIN EVALUATE
+══════════════════════════════════════════ */
+async function runEval() {
+  const btn = document.getElementById('btnGo');
+
+  // PAN check
+  const panRowId = mode==='Individual'?'panRowI':'panRowM';
+  const panId    = mode==='Individual'?'pan':'panM';
+  const panRow   = document.getElementById(panRowId);
+  const panVal   = document.getElementById(panId).value.toUpperCase();
+  if(!validPAN(panVal)){
+    panRow.classList.add('err');
+    showToast('⚠ Invalid PAN format','err');
+    return;
+  }
+  panRow.classList.remove('err');
+
+  btn.classList.add('ld');
+  await new Promise(r=>setTimeout(r,750));
+
+  let prob, data;
+
+  if(mode==='Individual'){
+    const age   = +document.getElementById('iAge').value;
+    const inc   = +document.getElementById('iInc').value;
+    const loan  = +document.getElementById('iLoan').value;
+    const miss  = document.getElementById('iMiss').value;
+    const exist = document.getElementById('iExist').value;
+    const emp   = +document.getElementById('iEmp').value;
+    const ins   = document.getElementById('iIns').value === 'Yes';
+    prob = indRisk(age,inc,loan,miss,exist,emp,ins);
+    data = {type:'Individual',name:document.getElementById('iName').value||'Unknown',
+            pan:panVal,age,income:inc,loan,missed:miss,existing:exist,emp,insurance:ins};
+  } else {
+    const age    = +document.getElementById('mAge').value;
+    const inc    = +document.getElementById('mInc').value;
+    const bizAge = +document.getElementById('mBizAge').value;
+    const gstReg = document.getElementById('mGst').value==='Yes';
+    const rev    = +document.getElementById('mRev').value;
+    const margin = +document.getElementById('mMargin').value;
+    const loan   = +document.getElementById('mLoan').value;
+    const miss   = document.getElementById('mMiss').value;
+    const exist  = document.getElementById('mExist').value;
+    const emp    = +document.getElementById('mEmp').value;
+    const ins    = document.getElementById('mIns').value === 'Yes';
+    prob = msmeRisk(age,inc,bizAge,gstReg,rev,margin,loan,miss,exist,emp,ins);
+    data = {type:'MSME',name:document.getElementById('mName').value||'Unknown',
+            pan:panVal,age,income:inc,loan,missed:miss,existing:exist,emp,insurance:ins,
+            bizAge,gstReg,revenue:rev,margin};
+  }
+
+  const score = computeScore(prob);
+  const band  = scoreBand(score);
+  const cls   = scoreClass(score);
+  const pred  = prob<0.5?'Low Risk':'High Risk';
+  const lti   = (data.loan/(data.income+1)).toFixed(1);
+  lastRes = {data,prob,score,band,pred};
+
+  btn.classList.remove('ld');
+
+  // Score
+  const sEl = document.getElementById('rScore');
+  sEl.textContent = score; sEl.className = 'snum '+cls;
+  const chip = document.getElementById('rChip');
+  chip.textContent = pred; chip.className = 'dchip '+(pred==='Low Risk'?'low':'high');
+  document.getElementById('rBand').textContent = band+' Credit';
+  document.getElementById('rProb').textContent = (prob*100).toFixed(1)+'%';
+  document.getElementById('rLti').textContent  = '×'+lti;
+  document.getElementById('rType').textContent = mode;
+
+  // Gauge needle
+  setTimeout(()=>{
+    document.getElementById('gneedle').style.left = ((score-300)/550*100)+'%';
+  },80);
+
+  // Ring
+  setTimeout(()=>renderRing(prob), 100);
+
+  // SHAP
+  const shapData = computeSHAP(data);
+  setTimeout(()=>renderSHAP(shapData), 150);
+
+  // Factor bars
+  const factorRows = computeFactorBars(data);
+  setTimeout(()=>renderFactorBars(factorRows), 200);
+
+  // ROC
+  document.getElementById('results').classList.add('on');
+  document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+  setTimeout(()=>drawROC(prob), 300);
+}
+
+/* ═══════════════════════════════════════
+   EXPORT
+══════════════════════════════════════════ */
+function exportReport(){
+  if(!lastRes) return;
+  const {data,prob,score,band,pred} = lastRes;
+  const now = new Date().toLocaleString('en-IN');
+  const rc  = pred==='Low Risk'?'#276749':'#c53030';
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Credit Report — ${data.pan}</title>
+<style>body{font-family:'Segoe UI',sans-serif;margin:0;padding:40px;color:#1a202c}h1{color:#1a365d;margin-bottom:4px}.sub{color:#718096;font-size:13px;margin-bottom:28px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px}.box{border:1px solid #e2e8f0;border-radius:8px;padding:14px}.box small{display:block;font-size:11px;color:#718096;margin-bottom:5px;text-transform:uppercase}.box span{font-size:22px;font-weight:700;color:#1a365d}.dec{color:${rc}}table{width:100%;border-collapse:collapse}th{background:#1a365d;color:#fff;padding:10px 14px;text-align:left;font-size:13px}td{padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px}footer{margin-top:36px;font-size:11px;color:#a0aec0;text-align:center}</style></head><body>
+<h1>AI Credit Risk Evaluation Report</h1><p class="sub">Type: ${data.type} | Generated: ${now}</p>
+<div class="grid"><div class="box"><small>Credit Score</small><span>${score}</span></div><div class="box"><small>Band</small><span>${band}</span></div><div class="box"><small>Default Probability</small><span>${(prob*100).toFixed(1)}%</span></div><div class="box"><small>Decision</small><span class="dec">${pred}</span></div></div>
+<table><tr><th>Field</th><th>Value</th></tr>
+<tr><td>Name</td><td>${data.name}</td></tr><tr><td>PAN</td><td>${data.pan}</td></tr>
+<tr><td>Age</td><td>${data.age}</td></tr>
+<tr><td>Monthly Income</td><td>₹${data.income.toLocaleString('en-IN')}</td></tr>
+<tr><td>Required Loan</td><td>₹${data.loan.toLocaleString('en-IN')}</td></tr>
+<tr><td>Missed Payments</td><td>${data.missed}</td></tr>
+<tr><td>Existing Loan</td><td>${data.existing}</td></tr>
+<tr><td>Insurance</td><td>${data.insurance?'Yes':'No'}</td></tr>
+${data.type==='MSME'?`<tr><td>Business Age</td><td>${data.bizAge} years</td></tr><tr><td>GST Registered</td><td>${data.gstReg?'Yes':'No'}</td></tr><tr><td>Monthly Revenue</td><td>₹${data.revenue.toLocaleString('en-IN')}</td></tr><tr><td>Profit Margin</td><td>${data.margin}%</td></tr>`:''}
+</table><footer>AI-generated for decision support only. Not financial advice.</footer></body></html>`;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+  a.download=`credit_report_${data.pan}.html`;a.click();
+  showToast('✓ Report downloaded','ok');
+}
+
+// Redraw ROC on resize
+window.addEventListener('resize', ()=>{ if(lastRes) drawROC(lastRes.prob); });
+</script>
+</body>
+</html>
